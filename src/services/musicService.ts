@@ -1,6 +1,7 @@
 import type {
   ArtworkDNA,
   ArtworkPatternType,
+  BackendHealthResponse,
   GenerateTrackOptions,
   GenerationStatusResponse,
   IMusicService,
@@ -126,6 +127,7 @@ function buildArtworkDNA(seed: number, sequenceIndex: number): ArtworkDNA {
 
 class MusicService implements IMusicService {
   public readonly mode: ServiceMode;
+  public readonly apiUrl: string;
   private readonly apiBaseUrl: string;
   private sequenceCounter = 0;
   private lastAudioIndex = -1;
@@ -134,10 +136,34 @@ class MusicService implements IMusicService {
 
   constructor() {
     const rawMode = (import.meta.env.VITE_MUSIC_SERVICE_MODE as string | undefined)?.toLowerCase();
-    this.mode = rawMode === 'api' ? 'api' : 'mock';
-    this.apiBaseUrl =
-      (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
-      'http://localhost:8000/api/v1';
+    // Default to 'api' so the frontend communicates with the local FastAPI backend
+    this.mode = rawMode === 'mock' ? 'mock' : 'api';
+
+    const rawApiUrl =
+      (import.meta.env.VITE_API_URL as string | undefined) ||
+      (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+      'http://localhost:8000';
+
+    const cleanOrigin = rawApiUrl.replace(/\/+$/, '').replace(/\/api(\/v1)?$/, '');
+    this.apiUrl = cleanOrigin;
+    this.apiBaseUrl = `${cleanOrigin}/api`;
+  }
+
+  public async checkHealth(signal?: AbortSignal): Promise<BackendHealthResponse> {
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/health`, { signal });
+      if (!response.ok) {
+        throw new Error(`Health check returned status ${response.status}`);
+      }
+      return (await response.json()) as BackendHealthResponse;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw err;
+      }
+      throw new Error(
+        `Backend unavailable at ${this.apiUrl}. Start the FastAPI server and try again.`
+      );
+    }
   }
 
   public async requestGeneration(options?: GenerateTrackOptions): Promise<TrackMetadata> {
@@ -152,9 +178,27 @@ class MusicService implements IMusicService {
     signal?: AbortSignal
   ): Promise<GenerationStatusResponse> {
     if (this.mode === 'api') {
-      const response = await fetch(`${this.apiBaseUrl}/generations/${jobId}`, { signal });
+      let response: Response;
+      try {
+        response = await fetch(`${this.apiBaseUrl}/generations/${jobId}`, { signal });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          throw err;
+        }
+        throw new Error(
+          `Connection to backend lost (${this.apiUrl}). Check if FastAPI is running.`
+        );
+      }
+
       if (!response.ok) {
-        throw new Error(`Failed to fetch generation status (${response.status})`);
+        let detail = `Failed to fetch generation status (${response.status})`;
+        try {
+          const body = (await response.json()) as { detail?: string };
+          if (body.detail) detail = body.detail;
+        } catch {
+          // ignore JSON parse error
+        }
+        throw new Error(detail);
       }
       return (await response.json()) as GenerationStatusResponse;
     }
@@ -180,7 +224,8 @@ class MusicService implements IMusicService {
       if (!response.ok) {
         throw new Error(`Failed to retrieve track metadata (${response.status})`);
       }
-      return (await response.json()) as TrackMetadata;
+      const track = (await response.json()) as TrackMetadata;
+      return this.normalizeTrackAudioUrl(track);
     }
 
     const cached = this.trackStore.get(trackId);
@@ -188,6 +233,100 @@ class MusicService implements IMusicService {
       throw new Error(`Track "${trackId}" not found in session store.`);
     }
     return cached;
+  }
+
+  private normalizeTrackAudioUrl(track: TrackMetadata): TrackMetadata {
+    let resolvedUrl = track.audioUrl;
+    if (resolvedUrl.startsWith('/')) {
+      resolvedUrl = `${this.apiUrl}${resolvedUrl}`;
+    } else if (!resolvedUrl.startsWith('http://') && !resolvedUrl.startsWith('https://')) {
+      resolvedUrl = this.getAudioUrl(track.id);
+    }
+    return {
+      ...track,
+      audioUrl: resolvedUrl,
+    };
+  }
+
+  private async cancelRemoteGeneration(jobId: string): Promise<void> {
+    try {
+      await fetch(`${this.apiBaseUrl}/generations/${jobId}`, {
+        method: 'DELETE',
+      });
+    } catch {
+      // Ignore cleanup errors when aborting
+    }
+  }
+
+  /**
+   * HTTP integration with the local Python/FastAPI backend:
+   * - POST /api/generate -> { id: string, jobId: string, status: string }
+   * - GET  /api/generations/{id} -> GenerationStatusResponse
+   * - GET  /api/tracks/{id}/audio -> WAV stream
+   */
+  private async requestApiGeneration(options?: GenerateTrackOptions): Promise<TrackMetadata> {
+    const { signal, onStatusUpdate } = options ?? {};
+
+    let createRes: Response;
+    try {
+      createRes = await fetch(`${this.apiBaseUrl}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancel_previous: true }),
+        signal,
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw err;
+      }
+      throw new Error(
+        `Backend unavailable at ${this.apiUrl}. Ensure the local FastAPI server is running.`
+      );
+    }
+
+    if (!createRes.ok) {
+      let detail = `Unable to start generation (${createRes.status})`;
+      try {
+        const errBody = (await createRes.json()) as { detail?: string };
+        if (errBody.detail) detail = errBody.detail;
+      } catch {
+        // ignore JSON parse error
+      }
+      throw new Error(detail);
+    }
+
+    const created = (await createRes.json()) as { id?: string; jobId?: string };
+    const generationId = created.id || created.jobId;
+    if (!generationId) {
+      throw new Error('Backend did not return a valid generation identifier.');
+    }
+
+    const onAbort = () => {
+      void this.cancelRemoteGeneration(generationId);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+
+    try {
+      while (true) {
+        const status = await this.getGenerationStatus(generationId, signal);
+        onStatusUpdate?.(status);
+
+        const isCompleted = status.status === 'completed' || status.phase === 'ready';
+        if (isCompleted && status.track) {
+          const normalizedTrack = this.normalizeTrackAudioUrl(status.track);
+          this.trackStore.set(normalizedTrack.id, normalizedTrack);
+          return normalizedTrack;
+        }
+
+        if (status.status === 'failed' || status.phase === 'error') {
+          throw new Error(status.error || 'Neural generation failed on the local backend.');
+        }
+
+        await delayWithSignal(400, signal);
+      }
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
   }
 
   private async requestMockGeneration(options?: GenerateTrackOptions): Promise<TrackMetadata> {
@@ -223,6 +362,7 @@ class MusicService implements IMusicService {
     for (const stage of stages) {
       const status: GenerationStatusResponse = {
         jobId,
+        status: 'generating',
         phase: stage.phase,
         message: stage.message,
         progress: stage.progress,
@@ -237,6 +377,7 @@ class MusicService implements IMusicService {
 
     const completedStatus: GenerationStatusResponse = {
       jobId,
+      status: 'completed',
       phase: 'ready',
       message: 'Composition ready',
       progress: 1,
@@ -253,7 +394,6 @@ class MusicService implements IMusicService {
     const seed = Math.floor(Date.now() % 1000000) + seq * 7919;
     const rand = seededRandom(seed);
 
-    // Pick next audio file without repeating the immediately previous one
     let audioIndex = seq % DEMO_AUDIO_POOL.length;
     if (audioIndex === this.lastAudioIndex) {
       audioIndex = (audioIndex + 1) % DEMO_AUDIO_POOL.length;
@@ -290,44 +430,6 @@ class MusicService implements IMusicService {
       isMock: true,
       artwork: buildArtworkDNA(seed, seq),
     };
-  }
-
-  /**
-   * Ready-to-use HTTP integration for the future Python/FastAPI GPT-2 + MidiTok backend.
-   * Expected endpoints:
-   * - POST /api/v1/generations -> { jobId: string }
-   * - GET  /api/v1/generations/:jobId -> GenerationStatusResponse
-   */
-  private async requestApiGeneration(options?: GenerateTrackOptions): Promise<TrackMetadata> {
-    const { signal, onStatusUpdate } = options ?? {};
-
-    const createRes = await fetch(`${this.apiBaseUrl}/generations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'gpt2-midi-finetuned' }),
-      signal,
-    });
-
-    if (!createRes.ok) {
-      throw new Error(`Unable to start neural generation (${createRes.status})`);
-    }
-
-    const { jobId } = (await createRes.json()) as { jobId: string };
-
-    while (true) {
-      const status = await this.getGenerationStatus(jobId, signal);
-      onStatusUpdate?.(status);
-
-      if (status.phase === 'ready' && status.track) {
-        return status.track;
-      }
-
-      if (status.phase === 'error') {
-        throw new Error(status.error || 'Neural generation failed on backend.');
-      }
-
-      await delayWithSignal(800, signal);
-    }
   }
 }
 

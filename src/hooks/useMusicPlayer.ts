@@ -215,11 +215,13 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       isGeneratingRef.current = false;
       setIsGenerating(false);
       setGenerationPhase('error');
-      setError(
+      setGenerationProgress(0);
+      const errMessage =
         err instanceof Error
           ? err.message
-          : 'An unexpected error occurred while composing your track.'
-      );
+          : 'An unexpected error occurred while composing your track.';
+      setGenerationMessage('Unable to connect to local neural engine.');
+      setError(errMessage);
     }
   }, []);
 

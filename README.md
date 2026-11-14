@@ -17,10 +17,9 @@
   <p align="center">
     <img src="https://img.shields.io/badge/React-19-121614?style=flat-square&logo=react&logoColor=B8FF65" alt="React" />
     <img src="https://img.shields.io/badge/TypeScript-5.7-121614?style=flat-square&logo=typescript&logoColor=B8FF65" alt="TypeScript" />
-    <img src="https://img.shields.io/badge/Vite-6-121614?style=flat-square&logo=vite&logoColor=B8FF65" alt="Vite" />
-    <img src="https://img.shields.io/badge/Tailwind_CSS-4-121614?style=flat-square&logo=tailwindcss&logoColor=B8FF65" alt="Tailwind CSS" />
-    <img src="https://img.shields.io/badge/Motion-Framer_Motion-121614?style=flat-square&logo=framer&logoColor=B8FF65" alt="Motion" />
+    <img src="https://img.shields.io/badge/FastAPI-Python-121614?style=flat-square&logo=fastapi&logoColor=B8FF65" alt="FastAPI" />
     <img src="https://img.shields.io/badge/PyTorch-Transformers-121614?style=flat-square&logo=pytorch&logoColor=83D94C" alt="PyTorch" />
+    <img src="https://img.shields.io/badge/MidiTok-FluidSynth-121614?style=flat-square&color=B8FF65" alt="MidiTok & FluidSynth" />
   </p>
 </div>
 
@@ -32,11 +31,9 @@
 
 O **Neurify** é uma aplicação experimental de geração musical com Inteligência Artificial, desenvolvida como projeto acadêmico da disciplina de **Redes Neurais e Deep Learning do IBMEC**.
 
-O projeto tem como objetivo explorar o uso de modelos de linguagem baseados na arquitetura **Transformer** para geração de sequências musicais inéditas. A proposta consiste em realizar o **fine-tuning do modelo GPT-2** utilizando datasets de músicas em formato **MIDI**, permitindo que a rede aprenda relações harmônicas, rítmicas e melódicas e gere novas composições a partir de sequências de tokens.
+O projeto explora o uso de modelos de linguagem baseados na arquitetura **Transformer** para geração de sequências musicais inéditas. A proposta consiste em realizar o **fine-tuning do modelo GPT-2** utilizando datasets de músicas em formato **MIDI**, permitindo que a rede aprenda relações harmônicas, rítmicas e melódicas e gere novas composições a partir de sequências de tokens.
 
-Para complementar o desenvolvimento e a avaliação do modelo, o Neurify apresenta uma interface web inspirada em plataformas modernas de streaming musical, na qual o usuário pode solicitar a geração de uma música, reproduzi-la e gerar uma nova composição ao avançar para a próxima faixa (*Skip*).
-
-Diferentemente de serviços tradicionais de streaming como o Spotify, o Neurify **não depende de um catálogo preexistente**: sua proposta é gerar novas composições sob demanda, acompanhadas de identidades visuais procedurais exclusivas para cada sequência.
+Seguindo o conceito *"The music can be only played once, so enjoy the ride"*, as composições geradas são **efêmeras**: o áudio sintetizado permanece apenas em memória durante a reprodução atual e é descartado assim que o usuário avança (*Skip*) para uma nova composição.
 
 ---
 
@@ -49,161 +46,237 @@ Diferentemente de serviços tradicionais de streaming como o Spotify, o Neurify 
 | **Projeto** | Neurify |
 | **Área** | Inteligência Artificial Generativa / Geração Musical Simbólica |
 | **Modelo Base** | GPT-2 (*Fine-tuning* em sequências MIDI tokenizadas) |
+| **Execução** | 100% Local (Frontend React + Backend FastAPI) |
 
 ---
 
-## 3. Objetivos do Projeto
+## 3. Arquitetura e Fluxo de Geração Musical
 
-- Investigar a aplicação de arquiteturas **Transformer** (especificamente o modelo autorregressivo GPT-2) na geração de sequências musicais simbólicas.
-- Realizar o **fine-tuning do GPT-2** utilizando dados musicais tokenizados a partir de arquivos MIDI.
-- Explorar o pré-processamento, quantização e representação de arquivos MIDI em vocabulários discretos com **MidiTok**.
-- Avaliar a capacidade do modelo de capturar estruturas, progressões e padrões musicais coerentes.
-- Desenvolver um pipeline ponta a ponta de geração de tokens, decodificação MIDI e síntese de áudio.
-- Demonstrar a experiência de consumo de música generativa sob demanda por meio de uma aplicação web interativa e responsiva.
-
----
-
-## 4. Como Funciona a Geração Musical
-
-O pipeline arquitetado para o Neurify conecta o processamento simbólico de dados MIDI à reprodução de áudio na interface web:
+O pipeline local do Neurify conecta o frontend React à API Python (`FastAPI`), que executa a geração fora da thread principal e sintetiza o áudio em memória:
 
 ```mermaid
 flowchart LR
-    A["Dataset MIDI"] --> B["MidiTok (Tokenização)"]
-    B --> C["Fine-tuning GPT-2"]
-    C --> D["Geração de Tokens"]
-    D --> E["Decodificação MIDI"]
-    E --> F["Síntese de Áudio"]
-    F --> G["Neurify Player"]
+    A["Frontend React"] -->|"POST /api/generate"| B["FastAPI Backend"]
+    B --> C["GPT-2 Fine-tuned (Tokens)"]
+    C --> D["MidiTok + Symusic (MIDI)"]
+    D --> E["FluidSynth + SoundFont (WAV em Memória)"]
+    E -->|"GET /api/tracks/{id}/audio"| A
 ```
 
-1. **Dataset MIDI & Tokenização (`MidiTok`):** Arquivos MIDI são convertidos em sequências discretas de eventos musicais (notas, velocidades, durações e deslocamentos temporais).
-2. **Fine-tuning (`GPT-2`):** O modelo GPT-2 é ajustado sobre o vocabulário musical para prever o próximo token dado o contexto anterior.
-3. **Inferência e Decodificação:** A cada solicitação do usuário na interface, uma nova sequência de tokens é amostrada, reconvertida em estrutura MIDI e renderizada em arquivo de áudio.
-4. **Neurify Player:** O frontend recebe os metadados e o fluxo de áudio, gerando simultaneamente uma capa artística procedural em HTML5 Canvas baseada na semente (*seed*) e nos parâmetros da faixa.
+1. **Solicitação do Frontend:** O botão *"Generate your first track"* ou o botão *Skip* solicita uma nova composição via `POST /api/generate`.
+2. **Inferência do GPT-2:** O serviço desacoplado (`model_service.py`) executa em uma worker thread dedicada (limitada a 1 geração por vez) para não bloquear consultas de status (`GET /api/generations/{id}`).
+3. **Decodificação MIDI (`MidiTok` + `Symusic`):** Os tokens gerados são decodificados com a mesma configuração do treinamento.
+4. **Síntese de Áudio Efêmera (`FluidSynth`):** O MIDI temporário é convertido para WAV com `FluidSynth` e mantido apenas em memória RAM para reprodução única.
+5. **Reprodução no Player:** O frontend recebe os metadados e reproduz o stream de áudio (`GET /api/tracks/{id}/audio`), acompanhado de arte generativa procedural em HTML5 Canvas.
 
 ---
 
-## 5. Tecnologias Utilizadas
+## 4. Endpoints do Backend Local
 
-### Inteligência Artificial e Processamento Musical *(Pipeline de Modelagem / Backend Planejado)*
-- **Python** — Linguagem base para o pipeline de dados, treinamento e API de inferência.
-- **PyTorch** — Framework de Deep Learning para treinamento e inferência do modelo.
-- **Hugging Face Transformers** — Carregamento, configuração e *fine-tuning* do modelo `GPT-2`.
-- **MidiTok** — Tokenização de arquivos MIDI para modelos baseados em Transformer.
-- **MIDI** — Representação simbólica estruturada de eventos musicais.
-
-### Aplicação Web *(Frontend Implementado)*
-- **React 19 + TypeScript** — Arquitetura de componentes fortemente tipada.
-- **Vite 6** — Bundler e ambiente de desenvolvimento de alta performance.
-- **Tailwind CSS 4** — Estilização utilitária customizada com paleta proprietária.
-- **Motion (`framer-motion`)** — Transições de tela, microinterações e animações de estado.
-- **Lucide React** — Iconografia minimalista.
-- **HTML5 Audio API & Canvas 2D** — Reprodução nativa de áudio e geração procedural de capas e ondas neurais.
+| Método | Rota | Descrição |
+| :--- | :--- | :--- |
+| `GET` | `/api/health` | Retorna o estado do servidor, modo ativo (`MOCK` ou `REAL`) e se o modelo GPT-2 está carregado. |
+| `POST` | `/api/generate` | Inicia a geração de uma música inédita (controle de concorrência de 1 execução por vez) e retorna o `id` da geração. |
+| `GET` | `/api/generations/{id}` | Retorna o status (`pending`, `generating`, `completed`, `failed`), progresso, metadados e URL do áudio. |
+| `GET` | `/api/tracks/{id}/audio` | Disponibiliza o stream de áudio (WAV) da faixa ativa em memória (com suporte a HTTP `Range`). |
+| `DELETE` | `/api/generations/{id}` | Cancela uma geração em andamento e libera o slot de execução. |
 
 ---
 
-## 6. Estrutura do Repositório
+## 5. Estrutura do Repositório
 
 ```text
 neurify/
+├── backend/
+│   ├── checkpoints/              # Diretório local para pesos do GPT-2 e config do MidiTok (ignorado no Git)
+│   ├── soundfonts/               # Diretório local para arquivos SoundFont .sf2 (ignorado no Git)
+│   ├── config.py                 # Configurações locais, caminhos e origens CORS permitidas
+│   ├── main.py                   # Servidor FastAPI, rotas REST e controle de ciclo de vida
+│   ├── model_service.py          # Camada desacoplada do GPT-2, MidiTok, FluidSynth e modo MOCK
+│   ├── schemas.py                # Contratos Pydantic da API
+│   ├── requirements.txt          # Dependências Python do backend
+│   └── .env.example              # Exemplo de variáveis de ambiente do backend
 ├── public/
-│   ├── audio/                    # Faixas locais de demonstração para o modo MOCK
-│   ├── _redirects                # Configuração de roteamento estático (Cloudflare Pages)
+│   ├── audio/                    # Faixas WAV de demonstração utilizadas enquanto em modo MOCK
 │   └── favicon.svg               # Ícone vetorial do Neurify
 ├── src/
-│   ├── assets/                   # Recursos estáticos internos
-│   ├── components/
-│   │   ├── AlbumArtwork.tsx      # Arte generativa procedural 1:1 em Canvas por faixa
-│   │   ├── GenerationState.tsx   # Visualizador animado das etapas de síntese neural
-│   │   ├── Logo.tsx              # Marca gráfica minimalista com ondas e nós neurais
-│   │   ├── MusicControls.tsx     # Controles Play/Pause, Skip (nova geração) e Volume
-│   │   ├── NeuralVisual.tsx      # Composição procedural interativa da tela inicial
-│   │   └── ProgressBar.tsx       # Barra de progresso interativa com suporte a teclado
+│   ├── components/               # Componentes visuais (AlbumArtwork, GenerationState, MusicControls, etc.)
 │   ├── hooks/
-│   │   └── useMusicPlayer.ts     # Gerenciamento do HTML5 Audio, estados e AbortController
+│   │   └── useMusicPlayer.ts     # Gerenciamento do HTML5 Audio, estados de geração e tratamento de erros
 │   ├── pages/
-│   │   ├── Welcome.tsx           # Tela 01 — Experiência de entrada (Landing)
+│   │   ├── Welcome.tsx           # Tela 01 — Experiência de entrada
 │   │   └── Player.tsx            # Tela 02 — Player de streaming generativo
 │   ├── services/
-│   │   └── musicService.ts       # Camada desacoplada de serviço (Modos MOCK e API)
-│   ├── styles/
-│   │   └── index.css             # Tokens visuais, tipografia e utilitários globais
+│   │   └── musicService.ts       # Cliente HTTP integrado ao backend FastAPI via VITE_API_URL
 │   ├── types/
-│   │   └── music.ts              # Contratos TypeScript para faixas, geração e serviço
+│   │   └── music.ts              # Contratos TypeScript
 │   ├── App.tsx                   # Orquestração entre telas e transições
-│   └── main.tsx                  # Ponto de entrada da aplicação React
-├── .env.example                  # Variáveis de ambiente suportadas
-├── index.html                    # Documento base e carregamento tipográfico
-├── package.json                  # Scripts e dependências do projeto
-├── tsconfig.json                 # Configuração do compilador TypeScript
-└── vite.config.ts                # Configuração de build Vite
+│   └── main.tsx                  # Ponto de entrada React
+├── .env.example                  # Variável VITE_API_URL=http://localhost:8000
+├── package.json                  # Scripts e dependências do frontend
+└── vite.config.ts                # Configuração Vite
 ```
 
 ---
 
-## 7. Como Executar Localmente
+## 6. Guia de Execução Local (Apresentação Acadêmica)
 
-### Pré-requisitos
-- **Node.js** `>= 18.x` (recomendado `20.x` ou `22.x`)
-- **npm** `>= 9.x`
+### 6.1. Instalação das Dependências Python (Backend)
 
-### Passo a passo
-
-1. **Instale as dependências do projeto:**
+1. Acesse a pasta `backend/` e crie um ambiente virtual Python (`Python >= 3.10`):
    ```bash
-   npm install
+   cd backend
+   python -m venv .venv
    ```
 
-2. **(Opcional) Configure as variáveis de ambiente:**
-   Por padrão, a aplicação executa automaticamente no modo de demonstração (`mock`). Caso deseje customizar, copie o arquivo `.env.example` para `.env`:
+2. Ative o ambiente virtual:
+   - **Windows (PowerShell):**
+     ```powershell
+     .\.venv\Scripts\Activate.ps1
+     ```
+   - **Linux / macOS:**
+     ```bash
+     source .venv/bin/activate
+     ```
+
+3. Instale as dependências:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### 6.2. Instalação do Sintetizador MIDI (`FluidSynth`) e `SoundFont`
+
+Para converter os arquivos MIDI gerados pelo modelo em áudio WAV no modo real:
+
+1. **Instale o executável do FluidSynth no sistema operacional:**
+   - **Windows (via Winget ou Chocolatey):**
+     ```powershell
+     winget install FluidSynth.FluidSynth
+     # ou: choco install fluidsynth
+     ```
+   - **macOS (Homebrew):**
+     ```bash
+     brew install fluid-synth
+     ```
+   - **Ubuntu / Debian:**
+     ```bash
+     sudo apt-get update && sudo apt-get install -y fluidsynth
+     ```
+   Verifique se o binário está disponível no `PATH` executando `fluidsynth --version`.
+
+2. **Adicione um arquivo SoundFont (`.sf2`):**
+   - Baixe um SoundFont General MIDI (ex.: `FluidR3_GM.sf2` ou `GeneralUser_GS.sf2`).
+   - Salve o arquivo em `backend/soundfonts/default.sf2` (ou configure o caminho em `NEURIFY_SOUNDFONT_PATH` no arquivo `backend/.env`).
+
+### 6.3. Configuração do Caminho do Checkpoint
+
+1. Copie o arquivo de exemplo de variáveis de ambiente do backend:
+   ```bash
+   cp backend/.env.example backend/.env
+   ```
+2. Quando os arquivos resultantes do notebook de treinamento estiverem prontos, coloque-os em `backend/checkpoints/gpt2-midi/` e ajuste em `backend/.env`:
+   ```env
+   NEURIFY_EXECUTION_MODE=mock
+   NEURIFY_CHECKPOINT_DIR=./checkpoints/gpt2-midi
+   NEURIFY_TOKENIZER_CONFIG=./checkpoints/gpt2-midi/tokenizer.json
+   NEURIFY_SOUNDFONT_PATH=./soundfonts/default.sf2
+   ```
+   > **Nota:** Enquanto o notebook de treinamento não for conectado, mantenha `NEURIFY_EXECUTION_MODE=mock`. O backend operará automaticamente em modo de demonstração identificado como `MOCK`.
+
+### 6.4. Inicialização do Backend (FastAPI)
+
+Com o ambiente virtual ativado dentro da pasta `backend/`:
+
+```bash
+cd backend
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+A API estará disponível em `http://localhost:8000` (documentação interativa Swagger em `http://localhost:8000/docs`).
+
+### 6.5. Inicialização do Frontend (React + Vite)
+
+Em outro terminal, na raiz do repositório:
+
+1. Configure a variável de ambiente do frontend (opcional, pois o padrão já é `http://localhost:8000`):
    ```bash
    cp .env.example .env
    ```
+   Conteúdo de `.env`:
+   ```env
+   VITE_API_URL=http://localhost:8000
+   ```
 
-3. **Inicie o servidor de desenvolvimento:**
+2. Instale os pacotes e inicie o servidor Vite:
    ```bash
+   npm install
    npm run dev
    ```
-   Acesse o endereço exibido no terminal (geralmente `http://localhost:5173`).
+3. Abra `http://localhost:5173` no navegador.
 
-4. **Validação de tipos e build de produção:**
+---
+
+## 7. Como Verificar a API e Realizar uma Geração de Teste
+
+### 7.1. Verificar se a API está funcionando (`GET /api/health`)
+
+No terminal (ou navegador), execute:
+
+```bash
+curl http://localhost:8000/api/health
+```
+
+Resposta esperada (enquanto em modo `MOCK`):
+```json
+{
+  "status": "ok",
+  "model_loaded": false,
+  "mode": "MOCK",
+  "is_generating": false,
+  "active_generation_id": null,
+  "checkpoint_dir": ".../backend/checkpoints/gpt2-midi",
+  "checkpoint_found": false,
+  "tokenizer_config_found": false,
+  "soundfont_found": false,
+  "fluidsynth_available": false,
+  "detail": "Operating in MOCK demonstration mode with local audio files..."
+}
+```
+
+### 7.2. Realizar uma geração de teste via linha de comando
+
+1. **Disparar uma nova geração (`POST /api/generate`):**
    ```bash
-   npm run lint
-   npm run build
-   npm run preview
+   curl -X POST http://localhost:8000/api/generate \
+     -H "Content-Type: application/json" \
+     -d "{}"
+   ```
+   Exemplo de retorno:
+   ```json
+   {
+     "id": "gen-1763156000000-a1b2c3",
+     "jobId": "gen-1763156000000-a1b2c3",
+     "status": "pending",
+     "mode": "MOCK",
+     "is_mock": true,
+     "message": "Composing something new..."
+   }
    ```
 
-### Publicação na Cloudflare Pages
-O projeto é 100% compatível com hospedagem estática na **Cloudflare Pages**:
-- **Build command:** `npm run build`
-- **Build output directory:** `dist`
-- **Node.js version:** `20` ou `22`
+2. **Consultar o status da geração (`GET /api/generations/{id}`):**
+   ```bash
+   curl http://localhost:8000/api/generations/gen-1763156000000-a1b2c3
+   ```
+   Quando `status` for `"completed"`, o JSON conterá o objeto `track` e `audio_url` (ex.: `"/api/tracks/nrf-mock-1a2b3/audio"`).
+
+3. **Testar o stream do áudio gerado (`GET /api/tracks/{id}/audio`):**
+   ```bash
+   curl -I http://localhost:8000/api/tracks/nrf-mock-1a2b3/audio
+   ```
+   Retorna `HTTP/1.1 200 OK` com `Content-Type: audio/wav`.
 
 ---
 
-## 8. Status de Desenvolvimento
+## 8. Status da Integração do Modelo
 
 > [!IMPORTANT]
-> **Modo de Demonstração Ativo (`MOCK`):** Nesta etapa do projeto, o modelo GPT-2 ainda não está conectado em tempo real ao frontend. A interface opera em modo `MOCK` (identificado discretamente na aplicação como `DEMO PREVIEW` / `[MOCK AUDIO]`), utilizando composições locais de demonstração e simulando as etapas de geração para validar toda a experiência de usuário e arquitetura do player.
-
-### Implementado (Frontend & Arquitetura de Interface)
-- [x] **Tela 01 (Welcome):** Composição procedural interativa em Canvas, tipografia editorial e acionamento imediato do fluxo generativo.
-- [x] **Tela 02 (Music Player):** Player responsivo (mobile-first e desktop) com controles de reprodução, busca interativa (*seek*), volume e geração contínua ao avançar (*Skip*).
-- [x] **Arte Procedural por Faixa:** Cada música gerada recebe uma semente única que renderiza padrões geométricos e harmônicos distintos em proporção 1:1.
-- [x] **Camada de Serviço Desacoplada (`musicService.ts`):** Interface pronta para alternar entre o modo `mock` e o modo `api` via variável de ambiente (`VITE_MUSIC_SERVICE_MODE=api`), sem necessidade de reescrever componentes visuais.
-- [x] **Controle de Concorrência e Acessibilidade:** Cancelamento de requisições em andamento via `AbortController`, limpeza de recursos de áudio, suporte a teclado e respeito a `prefers-reduced-motion`.
-
-### Planejado (Pipeline de IA & Integração Backend)
-- [ ] Pré-processamento do dataset MIDI e tokenização com `MidiTok`.
-- [ ] Treinamento e *fine-tuning* do modelo `GPT-2` em PyTorch / Hugging Face.
-- [ ] Avaliação qualitativa e quantitativa das sequências musicais geradas.
-- [ ] Implementação do servidor de inferência e síntese de áudio em Python (`FastAPI`).
-- [ ] Conexão do frontend ao endpoint de inferência real (`VITE_MUSIC_SERVICE_MODE=api`).
-
----
-
-## 9. Licença e Créditos
-
-- **Contexto:** Projeto acadêmico desenvolvido no **IBMEC** para a disciplina de **Redes Neurais e Deep Learning**.
-- **Licença:** A ser definida pelos autores do projeto em etapa posterior.
+> **Modo `MOCK` Ativo no Backend:** A estrutura completa da API (`FastAPI`), o controle de concorrência, o fluxo assíncrono em memória e a integração com o frontend React estão prontos e operacionais. A inferência definitiva do `GPT-2` e a decodificação `MidiTok` serão conectadas em `backend/model_service.py` após a análise do notebook de treinamento (identificando arquitetura exata, classe do tokenizador, vocabulário, tokens especiais e estratégia de amostragem).

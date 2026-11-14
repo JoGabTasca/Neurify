@@ -108,6 +108,7 @@ export const Player: React.FC<PlayerProps> = ({
                 message={generationMessage}
                 progress={generationProgress}
                 phase={generationPhase}
+                onRetry={onSkipToNewTrack}
               />
             ) : (
               <AlbumArtwork
@@ -138,6 +139,15 @@ export const Player: React.FC<PlayerProps> = ({
             >
               <ChevronLeft className="w-5 h-5 -ml-0.5" />
             </button>
+
+            {currentTrack?.isMock && !isGenerating && (
+              <div
+                title="Running in local MOCK demonstration mode while awaiting GPT-2 checkpoint"
+                className="px-2.5 py-1 rounded-full bg-black/35 backdrop-blur-md border border-white/10 font-mono-tech text-[10px] tracking-[0.14em] uppercase text-[#B8FF65]/90"
+              >
+                MOCK · DEMO
+              </div>
+            )}
 
             {/* Invisible spacer for optical centering */}
             <div className="w-10 h-10" aria-hidden="true" />

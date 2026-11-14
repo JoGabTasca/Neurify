@@ -7,10 +7,35 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Frontend dependencies & build
 node_modules
 dist
 dist-ssr
 *.local
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+backend/.venv/
+backend/venv/
+backend/.env
+
+# Model Checkpoints, SoundFonts & Ephemeral/Generated Audio/MIDI
+backend/checkpoints/*
+!backend/checkpoints/.gitkeep
+backend/soundfonts/*
+!backend/soundfonts/.gitkeep
+backend/generated/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.sf2
+*.mid
+*.midi
 
 # Editor directories and files
 .vscode/*

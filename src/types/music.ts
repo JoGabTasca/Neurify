@@ -1,5 +1,7 @@
 export type ServiceMode = 'mock' | 'api';
 
+export type GenerationJobStatus = 'pending' | 'generating' | 'completed' | 'failed';
+
 export type GenerationPhase =
   | 'idle'
   | 'sampling_tokens'
@@ -43,13 +45,27 @@ export interface TrackMetadata {
   artwork: ArtworkDNA;
 }
 
+export interface BackendHealthResponse {
+  status: 'ok';
+  model_loaded: boolean;
+  mode: 'MOCK' | 'REAL';
+  is_generating: boolean;
+  active_generation_id?: string | null;
+  detail?: string;
+}
+
 export interface GenerationStatusResponse {
+  id?: string;
   jobId: string;
+  status?: GenerationJobStatus;
   phase: GenerationPhase;
   message: string;
   progress: number;
+  mode?: 'MOCK' | 'REAL';
+  is_mock?: boolean;
+  audio_url?: string | null;
   track?: TrackMetadata;
-  error?: string;
+  error?: string | null;
 }
 
 export interface GenerateTrackOptions {
@@ -59,6 +75,8 @@ export interface GenerateTrackOptions {
 
 export interface IMusicService {
   readonly mode: ServiceMode;
+  readonly apiUrl: string;
+  checkHealth(signal?: AbortSignal): Promise<BackendHealthResponse>;
   requestGeneration(options?: GenerateTrackOptions): Promise<TrackMetadata>;
   getGenerationStatus(jobId: string, signal?: AbortSignal): Promise<GenerationStatusResponse>;
   getAudioUrl(trackId: string): string;
