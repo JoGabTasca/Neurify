@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-primary: #080A09;
+    --bg-surface: #121614;
+    --accent-primary: #B8FF65;
+    --accent-secondary: #83D94C;
+    --text-primary: #F5F7F4;
+    --text-secondary: #8A938D;
+    --border-subtle: rgba(255, 255, 255, 0.07);
+
+    --font-sans: 'Satoshi', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: 'Clash Display', 'Syne', 'Satoshi', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  * {
+    box-sizing: border-box;
+    border-color: var(--border-subtle);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-sans-ui {
+  font-family: var(--font-sans);
+}
+
+.font-mono-tech {
+  font-family: var(--font-mono);
+}
+
+/* Subtle film grain texture for tactile hardware/editorial depth */
+.bg-subtle-grain {
+  background-image: radial-gradient(rgba(184, 255, 101, 0.03) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* Custom keyboard focus ring */
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px #080A09, 0 0 0 4px #B8FF65;
+}
+
+/* Safe area support for mobile devices */
+.safe-top {
+  padding-top: max(1.25rem, env(safe-area-inset-top));
+}
+.safe-bottom {
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+}
