@@ -1,0 +1,19 @@
+# MIDIs do conjunto de teste do notebook (nenhum foi usado no treino), baixados do VGMusic pelo Preparar-Neurify
+https://www.vgmusic.com/music/console/nintendo/snes/No_Hope.mid
+https://www.vgmusic.com/music/console/nintendo/snes/ctmarle1.mid
+https://www.vgmusic.com/music/console/nintendo/snes/ctwndscene.mid
+https://www.vgmusic.com/music/console/nintendo/snes/Battle_Theme1.mid
+https://www.vgmusic.com/music/console/nintendo/snes/ChronoTriggerNormalBattle.mid
+https://www.vgmusic.com/music/console/nintendo/snes/TheMiddleAges.mid
+https://www.vgmusic.com/music/console/nintendo/snes/CT_-_Battle.mid
+https://www.vgmusic.com/music/console/nintendo/snes/ctbattle.mid
+https://www.vgmusic.com/music/console/nintendo/snes/ct600ad.mid
+https://www.vgmusic.com/music/console/nintendo/snes/ctcrono3.mid
+https://www.vgmusic.com/music/console/nintendo/snes/TDTWR.mid
+https://www.vgmusic.com/music/console/nintendo/snes/CTBattle-2.mid
+https://www.vgmusic.com/music/console/nintendo/snes/chrono_trigger_battle1.mid
+https://www.vgmusic.com/music/console/nintendo/snes/600AD_Map_Theme.mid
+https://www.vgmusic.com/music/console/nintendo/snes/ctmarle3.mid
+https://www.vgmusic.com/music/console/nintendo/snes/ct_epilogue_torch.mid
+https://www.vgmusic.com/music/console/nintendo/snes/1-09-WindScene.mid
+https://www.vgmusic.com/music/console/nintendo/snes/ChronoTrigger-Battle1.mid
