@@ -121,6 +121,25 @@ neurify/
 
 ## 6. Guia de Execução Local (Apresentação Acadêmica)
 
+### 6.0. Instalação rápida no Windows (recomendada)
+
+1. Clone o repositório e entre na branch com o modelo real:
+   ```powershell
+   git clone -b ewerton/ap2-transfer-learning https://github.com/ewerside/Neurify.git
+   ```
+2. Baixe o modelo treinado: a pasta `gpt2_pretreinado` (ou só o `model.safetensors`, 345 MB) que o grupo compartilhou no Google Drive. Deixe em `Downloads`, sem renomear. Os pesos não ficam no GitHub por causa do tamanho.
+3. Clique duas vezes em **`Preparar-Neurify.bat`**, na raiz do repositório. Ele:
+   - copia o modelo para `backend/checkpoints/gpt2-midi/`, com a configuração e o tokenizador que estão em `backend/modelo_config/`;
+   - baixa do VGMusic os MIDIs do conjunto de teste (lista em `backend/modelo_config/prompts_teste.txt`), usados como começo das músicas;
+   - baixa o SoundFont [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS) (31 MB, uso livre) para `backend/soundfonts/default.sf2`. O notebook usa o `FluidR3_GM.sf2` (148 MB, grande demais para o GitHub); se você o tiver, basta colocá-lo nesse caminho;
+   - baixa o FluidSynth para Windows dentro de `backend/tools/`, sem mexer no `PATH`;
+   - cria o `backend/.env` em modo `auto`, o ambiente Python (`backend/.venv`) e roda o `npm install`;
+   - instala Python e Node pelo `winget` se faltarem (pede confirmação);
+   - abre o backend, confere `"mode": "REAL"` em `/api/health`, gera uma música de teste e abre o player.
+4. Nas próximas vezes, clique duas vezes em **`Iniciar-Neurify.bat`**.
+
+Se o Windows mostrar "O Windows protegeu o computador", clique em "Mais informações" e "Executar assim mesmo". A instalação manual, para qualquer sistema, está a seguir.
+
 ### 6.1. Instalação das Dependências Python (Backend)
 
 1. Acesse a pasta `backend/` e crie um ambiente virtual Python (`Python >= 3.10`):
@@ -149,11 +168,7 @@ neurify/
 Para converter os arquivos MIDI gerados pelo modelo em áudio WAV no modo real:
 
 1. **Instale o executável do FluidSynth no sistema operacional:**
-   - **Windows (via Winget ou Chocolatey):**
-     ```powershell
-     winget install FluidSynth.FluidSynth
-     # ou: choco install fluidsynth
-     ```
+   - **Windows:** baixe o `.zip` `win10-x64` da [página de releases do FluidSynth](https://github.com/FluidSynth/fluidsynth/releases), extraia e aponte `NEURIFY_FLUIDSYNTH_BIN` no `backend/.env` para o `bin/fluidsynth.exe` (ou use o `Preparar-Neurify.bat`, que faz isso). Use a versão 2.x; a partir da 2.6, as opções precisam vir antes dos arquivos, e o backend já chama assim.
    - **macOS (Homebrew):**
      ```bash
      brew install fluid-synth
@@ -165,7 +180,7 @@ Para converter os arquivos MIDI gerados pelo modelo em áudio WAV no modo real:
    Verifique se o binário está disponível no `PATH` executando `fluidsynth --version`.
 
 2. **Adicione um arquivo SoundFont (`.sf2`):**
-   - Baixe um SoundFont General MIDI (ex.: `FluidR3_GM.sf2` ou `GeneralUser_GS.sf2`).
+   - Baixe um SoundFont General MIDI. O notebook usa o `FluidR3_GM.sf2` (pacote `fluid-soundfont-gm` no Linux); o `Preparar-Neurify.bat` baixa o [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS), menor e de uso livre.
    - Salve o arquivo em `backend/soundfonts/default.sf2` (ou configure o caminho em `NEURIFY_SOUNDFONT_PATH` no arquivo `backend/.env`).
 
 ### 6.3. Configuração do Caminho do Checkpoint
@@ -174,14 +189,25 @@ Para converter os arquivos MIDI gerados pelo modelo em áudio WAV no modo real:
    ```bash
    cp backend/.env.example backend/.env
    ```
-2. Quando os arquivos resultantes do notebook de treinamento estiverem prontos, coloque-os em `backend/checkpoints/gpt2-midi/` e ajuste em `backend/.env`:
+2. Baixe o modelo salvo pelo notebook de treinamento ([MIDI_AP2_GPT2_Chrono_Trigger](https://colab.research.google.com/drive/1LAeftmFJ0Ot10bTrVG5TEsK4Bn4N-Rme), seção 23). No Google Drive de quem rodou o notebook, ele fica em `MIDI_AP2/estilo_chrono_trigger/resultados/gpt2_pretreinado/`. Copie o conteúdo dessa pasta para `backend/checkpoints/gpt2-midi/`. Se tiver só o `model.safetensors`, os outros três arquivos estão em `backend/modelo_config/`:
+   ```text
+   backend/checkpoints/gpt2-midi/
+   ├── config.json              # GPT-2 124M com tabela de 484 tokens
+   ├── generation_config.json
+   ├── model.safetensors        # pesos após as duas fases de ajuste fino
+   ├── tokenizer.json           # MidiTok 3.1.0, REMI, com a mesma configuração do treino
+   └── prompts/                 # opcional: MIDIs usados como começo de cada geração
+   ```
+3. **Opcional, mas recomendado:** copie para `backend/checkpoints/gpt2-midi/prompts/` alguns MIDIs do conjunto de **teste** (os links estão em `backend/modelo_config/prompts_teste.txt`). Cada geração sorteia um deles, usa os dois primeiros compassos como começo, como na seção 21 do notebook, e toca só a continuação criada pelo modelo. Sem essa pasta, a geração começa de um compasso 4/4 vazio.
+4. Confira o `backend/.env`:
    ```env
-   NEURIFY_EXECUTION_MODE=mock
+   NEURIFY_EXECUTION_MODE=auto
    NEURIFY_CHECKPOINT_DIR=./checkpoints/gpt2-midi
    NEURIFY_TOKENIZER_CONFIG=./checkpoints/gpt2-midi/tokenizer.json
+   NEURIFY_PROMPTS_DIR=./checkpoints/gpt2-midi/prompts
    NEURIFY_SOUNDFONT_PATH=./soundfonts/default.sf2
    ```
-   > **Nota:** Enquanto o notebook de treinamento não for conectado, mantenha `NEURIFY_EXECUTION_MODE=mock`. O backend operará automaticamente em modo de demonstração identificado como `MOCK`.
+   > **Nota:** com `auto`, o backend usa o modelo real quando encontra os pesos, o `tokenizer.json`, o SoundFont e o FluidSynth. Se faltar algo, opera em modo `MOCK` e o `GET /api/health` diz o que está faltando. Com `mock`, usa sempre os áudios de demonstração; com `real`, recusa iniciar sem os arquivos.
 
 ### 6.4. Inicialização do Backend (FastAPI)
 
@@ -279,4 +305,14 @@ Resposta esperada (enquanto em modo `MOCK`):
 ## 8. Status da Integração do Modelo
 
 > [!IMPORTANT]
-> **Modo `MOCK` Ativo no Backend:** A estrutura completa da API (`FastAPI`), o controle de concorrência, o fluxo assíncrono em memória e a integração com o frontend React estão prontos e operacionais. A inferência definitiva do `GPT-2` e a decodificação `MidiTok` serão conectadas em `backend/model_service.py` após a análise do notebook de treinamento (identificando arquitetura exata, classe do tokenizador, vocabulário, tokens especiais e estratégia de amostragem).
+> **Modelo real conectado.** O `backend/model_service.py` carrega o modelo treinado no notebook [MIDI_AP2_GPT2_Chrono_Trigger](https://colab.research.google.com/drive/1LAeftmFJ0Ot10bTrVG5TEsK4Bn4N-Rme) e gera com as mesmas escolhas da seção 21 do notebook. Sem os arquivos do modelo, o backend continua em modo `MOCK`.
+
+| Item | Valor, igual ao do notebook |
+| :--- | :--- |
+| Modelo | GPT-2 124M pré-treinado em texto, com a tabela de tokens trocada por uma de 484 linhas e ajuste fino em duas fases nos MIDIs de Chrono Trigger (pasta `gpt2_pretreinado`) |
+| Tokenizador | MidiTok 3.1.0, REMI, `num_velocities=16`, `use_chords=True`, `use_programs=True`, carregado do `tokenizer.json` salvo junto do modelo |
+| Começo da geração | os dois primeiros compassos de um MIDI de `prompts/`, ou um compasso 4/4 vazio |
+| Amostragem | 512 tokens novos, temperatura 0,9, top-p 0,95; PAD, BOS, EOS e MASK nunca são sorteados, porque não aparecem nos dados de treino |
+| Saída | os tokens novos viram MIDI com o MidiTok e WAV com o FluidSynth, só em memória |
+
+Sem GPU, gerar uma faixa deve levar algumas dezenas de segundos. Os títulos e a arte de capa são escolhidos pelo backend e pela interface, não pelo modelo. O BPM mostrado é o do MIDI gerado: 120, porque a configuração do tokenizador não inclui tokens de andamento.

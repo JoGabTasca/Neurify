@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
+import random
 import shutil
 import subprocess
 import tempfile
@@ -20,8 +21,12 @@ from config import (
     DEMO_AUDIO_DIR,
     EXECUTION_MODE,
     FLUIDSYNTH_BIN,
+    MAX_NEW_TOKENS,
+    PROMPTS_DIR,
     SOUNDFONT_PATH,
+    TEMPERATURE,
     TOKENIZER_CONFIG_PATH,
+    TOP_P,
 )
 from schemas import (
     ArtworkDNASchema,
@@ -157,6 +162,10 @@ class GenerationJob:
     track: Optional[TrackMetadataSchema] = None
     error: Optional[str] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    # Filled during real generation
+    generated_tokens: int = 0
+    prompt_source: Optional[str] = None
+    bpm: int = 120
 
 
 class ModelService:
@@ -169,13 +178,14 @@ class ModelService:
       - Only the current active composition is held in memory while playing; starting
         a new generation immediately discards the previous track's audio buffer.
 
-    IMPORTANT (Academic Architecture Note):
-    Until the training notebook is analyzed to extract the exact:
-      - GPT-2 architecture and configuration
-      - MidiTok tokenizer class (e.g., REMI, TSD, MIDILike) and parameters
-      - Vocabulary and special tokens (BOS/EOS/PAD)
-      - Checkpoint format and generation strategy (top-k, top-p, temperature, max_new_tokens)
-    this service operates in a clearly identified MOCK demonstration mode using local WAV files.
+    Real mode uses the model saved by the training notebook (MIDI_AP2_GPT2_Chrono_Trigger):
+      - GPT-2 124M pre-trained on text, with a new 484-row token table, fine-tuned in two
+        phases on Chrono Trigger MIDIs (folder gpt2_pretreinado, Hugging Face format);
+      - MidiTok 3.1.0 REMI tokenizer (num_velocities=16, use_chords=True, use_programs=True),
+        loaded from the tokenizer.json saved next to the weights;
+      - the notebook's sampling: start from the first two bars of a song (or an empty bar),
+        512 new tokens, temperature 0.9, top-p 0.95, special tokens suppressed.
+    Without those files the service runs in a clearly identified MOCK mode with local WAVs.
     """
 
     def __init__(self) -> None:
@@ -199,46 +209,100 @@ class ModelService:
         self._sequence_counter: int = 0
         self._last_demo_index: int = -1
 
+        # Filled by _load_real_model()
+        self._special_ids: List[int] = []
+        self._bar_id: Optional[int] = None
+        self._empty_bar: List[int] = []
+        self._prompt_files: List[Path] = []
+        self._context_size: int = 1024
+
     def initialize(self) -> None:
         """
         Called once during FastAPI startup (lifespan).
-        Checks whether local model artifacts exist without inventing weights or configs.
+        Loads the notebook's model when every artifact is present; otherwise stays in MOCK.
         """
         CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
         SOUNDFONT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-        checkpoint_exists = self._has_checkpoint_files()
-        tokenizer_exists = TOKENIZER_CONFIG_PATH.is_file()
-        soundfont_exists = SOUNDFONT_PATH.is_file()
-        fluidsynth_ok = self._is_fluidsynth_available()
-
-        if EXECUTION_MODE == "mock" or not (checkpoint_exists and tokenizer_exists):
-            self.model_loaded = False
-            self.mode = "MOCK"
-            self.status_detail = (
-                "Operating in MOCK demonstration mode with local audio files. "
-                "Definitive GPT-2 + MidiTok inference awaits training notebook analysis "
-                "and local fine-tuning checkpoint configuration."
-            )
-            logger.info("[MOCK MODE] %s", self.status_detail)
+        if EXECUTION_MODE == "mock":
+            self._set_mock("MOCK mode forced by NEURIFY_EXECUTION_MODE=mock.")
             return
 
-        # Real model loading will be finalized once the training notebook is analyzed
-        # so that the exact MidiTok tokenizer class and GPT-2 checkpoint format are known.
+        missing = []
+        if not self._has_checkpoint_files():
+            missing.append(f"GPT-2 weights in {CHECKPOINT_DIR}")
+        if not TOKENIZER_CONFIG_PATH.is_file():
+            missing.append(f"MidiTok tokenizer.json at {TOKENIZER_CONFIG_PATH}")
+        if not SOUNDFONT_PATH.is_file():
+            missing.append(f"SoundFont at {SOUNDFONT_PATH}")
+        if not self._is_fluidsynth_available():
+            missing.append(f"FluidSynth binary '{FLUIDSYNTH_BIN}' in PATH")
+
+        if missing:
+            message = "Missing: " + "; ".join(missing) + "."
+            if EXECUTION_MODE == "real":
+                raise RuntimeError(f"NEURIFY_EXECUTION_MODE=real but real mode cannot start. {message}")
+            self._set_mock(f"Operating in MOCK demonstration mode with local audio files. {message}")
+            return
+
+        try:
+            self._load_real_model()
+        except Exception as exc:
+            if EXECUTION_MODE == "real":
+                raise
+            logger.exception("Could not load the real model: %s", exc)
+            self._set_mock(f"Operating in MOCK mode: the real model failed to load ({exc}).")
+            return
+
+        self.model_loaded = True
+        self.mode = "REAL"
+        prompts = (
+            f"{len(self._prompt_files)} prompt MIDI file(s) in {PROMPTS_DIR}"
+            if self._prompt_files
+            else "no prompt MIDIs, generation starts from an empty 4/4 bar"
+        )
+        self.status_detail = (
+            f"GPT-2 fine-tuned checkpoint loaded on {self.device} "
+            f"(vocabulary {len(self.tokenizer)} tokens, {prompts}; "
+            f"{MAX_NEW_TOKENS} new tokens, temperature {TEMPERATURE}, top-p {TOP_P})."
+        )
+        logger.info("[REAL MODE] %s", self.status_detail)
+
+    def _set_mock(self, detail: str) -> None:
         self.model_loaded = False
         self.mode = "MOCK"
-        self.status_detail = (
-            f"Checkpoint directory detected at {CHECKPOINT_DIR}, but real inference "
-            "integration is pending notebook parameter extraction (tokenizer type, vocab, "
-            "special tokens, and sampling strategy). Running in MOCK mode."
-        )
-        logger.info(
-            "[MOCK MODE] Checkpoint found=%s, Tokenizer found=%s, SoundFont found=%s, FluidSynth=%s",
-            checkpoint_exists,
-            tokenizer_exists,
-            soundfont_exists,
-            fluidsynth_ok,
-        )
+        self.status_detail = detail
+        logger.info("[MOCK MODE] %s", detail)
+
+    def _load_real_model(self) -> None:
+        """Loads the GPT-2 checkpoint and the MidiTok tokenizer saved by the training notebook."""
+        import torch
+        from miditok import REMI
+        from transformers import GPT2LMHeadModel
+
+        tokenizer = REMI(params=TOKENIZER_CONFIG_PATH)
+        model = GPT2LMHeadModel.from_pretrained(CHECKPOINT_DIR)
+        if model.config.vocab_size != len(tokenizer):
+            raise ValueError(
+                f"Checkpoint vocabulary ({model.config.vocab_size}) does not match "
+                f"tokenizer.json ({len(tokenizer)}). Use the tokenizer saved with this model."
+            )
+
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        model.to(self.device).eval()
+
+        self.model = model
+        self.tokenizer = tokenizer
+        self._context_size = int(model.config.n_positions)
+        # PAD, BOS, EOS and MASK never appear in the training blocks, so they are never sampled
+        self._special_ids = list(tokenizer.special_tokens_ids)
+        self._bar_id = tokenizer["Bar_None"]
+        self._empty_bar = [self._bar_id]
+        if "TimeSig_4/4" in tokenizer.vocab:
+            self._empty_bar.append(tokenizer["TimeSig_4/4"])
+        self._prompt_files = sorted(
+            p for p in PROMPTS_DIR.glob("*") if p.suffix.lower() in (".mid", ".midi")
+        ) if PROMPTS_DIR.is_dir() else []
 
     def shutdown(self) -> None:
         """Cleanly shuts down the background inference worker and clears ephemeral audio."""
@@ -516,9 +580,71 @@ class ModelService:
             simulated_len = 512 + int(rand() * 512)
             return [0] * simulated_len
 
-        raise NotImplementedError(
-            "Real GPT-2 inference is pending training notebook configuration."
-        )
+        import torch
+        from transformers import StoppingCriteria, StoppingCriteriaList
+
+        class _StopWhenCancelled(StoppingCriteria):
+            def __call__(self, input_ids, scores, **kwargs) -> bool:
+                return job.cancel_event.is_set()
+
+        prompt, source, prompt_is_music = self._build_prompt()
+        max_new = max(1, min(MAX_NEW_TOKENS, self._context_size - len(prompt)))
+        inputs = torch.tensor([prompt], dtype=torch.long, device=self.device)
+
+        with torch.no_grad():
+            output = self.model.generate(
+                inputs,
+                attention_mask=torch.ones_like(inputs),
+                max_new_tokens=max_new,
+                do_sample=True,
+                temperature=TEMPERATURE,
+                top_p=TOP_P,
+                suppress_tokens=self._special_ids,
+                pad_token_id=self.tokenizer.pad_token_id,
+                stopping_criteria=StoppingCriteriaList([_StopWhenCancelled()]),
+            )
+        if job.cancel_event.is_set():
+            raise GenerationCancelledError()
+
+        new_tokens = output[0, len(prompt):].tolist()
+        job.generated_tokens = len(new_tokens)
+        job.prompt_source = source
+
+        if not prompt_is_music:
+            # The empty bar has no notes, so it is kept as the start of the piece
+            return prompt + new_tokens
+        # The prompt bars come from a real song, so only the model's continuation is played.
+        # The prompt ends right before a bar line, so the continuation normally starts a bar.
+        if new_tokens and new_tokens[0] != self._bar_id:
+            new_tokens = self._empty_bar + new_tokens
+        return new_tokens
+
+    def _build_prompt(self) -> tuple[List[int], Optional[str], bool]:
+        """
+        Same rule as the training notebook: the tokens of a song up to its third bar line
+        (its first two bars). Without prompt MIDIs, an empty 4/4 bar.
+        """
+        files = list(self._prompt_files)
+        random.shuffle(files)
+        limit = max(1, self._context_size - MAX_NEW_TOKENS)
+        for path in files:
+            try:
+                ids = self._tokenize_file(path)
+            except Exception as exc:
+                logger.warning("Skipping prompt %s: %s", path.name, exc)
+                continue
+            bar_starts = [i for i, t in enumerate(ids) if t == self._bar_id]
+            end = bar_starts[2] if len(bar_starts) > 2 else min(len(ids), 64)
+            prompt = ids[: min(end, limit)]
+            if prompt:
+                return prompt, path.stem, True
+        return list(self._empty_bar), None, False
+
+    def _tokenize_file(self, path: Path) -> List[int]:
+        seq = self.tokenizer(path)
+        if isinstance(seq, list):  # only happens with one sequence per track
+            return [i for s in seq for i in s.ids]
+        return list(seq.ids)
 
     def _step_decode_tokens_to_midi(
         self, job: GenerationJob, tokens: List[int]
@@ -531,9 +657,16 @@ class ModelService:
             self._sleep_interruptible(job, 0.72)
             return None
 
-        raise NotImplementedError(
-            "Real MidiTok decoding is pending training notebook configuration."
-        )
+        score = self.tokenizer.decode(tokens)
+        if sum(len(track.notes) for track in score.tracks) == 0:
+            raise RuntimeError("The generated tokens did not contain any notes.")
+        if len(score.tempos) > 0:
+            job.bpm = int(round(getattr(score.tempos[0], "qpm", 120)))
+
+        with tempfile.TemporaryDirectory(prefix="neurify-ephemeral-") as tmp_dir:
+            midi_path = Path(tmp_dir) / "composition.mid"
+            score.dump_midi(str(midi_path))
+            return midi_path.read_bytes()
 
     def _step_synthesize_audio(
         self,
@@ -562,18 +695,21 @@ class ModelService:
         seed = (int(time.time() * 1000) % 1000000) + seq * 7919
         duration = _read_wav_duration_bytes(audio_bytes, fallback=35.0)
         title = self._pick_title(seq, seed)
+        subtitle = "GPT-2 fine-tuned · Chrono Trigger style"
+        if job.prompt_source:
+            subtitle += f" · starts after 2 bars of {job.prompt_source}"
 
         track = TrackMetadataSchema(
             id=track_id,
             sequenceNumber=seq + 1,
             title=title,
-            subtitle="Generated by GPT-2 · Original composition",
+            subtitle=subtitle,
             audioUrl=f"/api/tracks/{track_id}/audio",
             durationSeconds=duration,
-            bpm=88,
-            musicalKey="C Major",
-            tokenCount=token_count,
-            temperature=0.95,
+            bpm=job.bpm,
+            musicalKey="N/A",
+            tokenCount=job.generated_tokens or token_count,
+            temperature=TEMPERATURE,
             createdAt=datetime.now(timezone.utc).isoformat(),
             isMock=False,
             artwork=_build_artwork_dna(seed, seq),
@@ -604,12 +740,13 @@ class ModelService:
             cmd = [
                 FLUIDSYNTH_BIN,
                 "-ni",
-                str(SOUNDFONT_PATH),
-                str(midi_path),
                 "-F",
                 str(wav_path),
                 "-r",
                 "44100",
+                # FluidSynth 2.6+ only accepts options before the SoundFont and MIDI files
+                str(SOUNDFONT_PATH),
+                str(midi_path),
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             if result.returncode != 0 or not wav_path.is_file():

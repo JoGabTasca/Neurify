@@ -20,9 +20,10 @@ PORT: int = int(os.getenv("NEURIFY_BACKEND_PORT", "8000"))
 
 # Execution mode:
 # - "mock": Forces local demonstration mode using sample WAV files (clearly marked as MOCK)
-# - "auto": Uses MOCK until the local checkpoint and notebook parameters are configured
-# - "real": Requires valid local GPT-2 checkpoint, MidiTok config, and FluidSynth SoundFont
-EXECUTION_MODE: str = os.getenv("NEURIFY_EXECUTION_MODE", "mock").strip().lower()
+# - "auto": Uses the real model when checkpoint, tokenizer, SoundFont and FluidSynth are all
+#           present; otherwise falls back to MOCK and says what is missing in /api/health
+# - "real": Requires all of the above and refuses to start without them
+EXECUTION_MODE: str = os.getenv("NEURIFY_EXECUTION_MODE", "auto").strip().lower()
 
 # Paths for local model artifacts and audio synthesis
 CHECKPOINT_DIR: Path = Path(
@@ -41,6 +42,17 @@ SOUNDFONT_PATH: Path = Path(
 ).resolve()
 
 FLUIDSYNTH_BIN: str = os.getenv("NEURIFY_FLUIDSYNTH_BIN", "fluidsynth")
+
+# Optional folder with MIDI files whose first two bars start each generation, as in the
+# training notebook (section 21). Without it, generation starts from an empty 4/4 bar.
+PROMPTS_DIR: Path = Path(
+    os.getenv("NEURIFY_PROMPTS_DIR", str(CHECKPOINT_DIR / "prompts"))
+).resolve()
+
+# Sampling settings, the same ones used in the training notebook
+MAX_NEW_TOKENS: int = int(os.getenv("NEURIFY_MAX_NEW_TOKENS", "512"))
+TEMPERATURE: float = float(os.getenv("NEURIFY_TEMPERATURE", "0.9"))
+TOP_P: float = float(os.getenv("NEURIFY_TOP_P", "0.95"))
 
 # Local demonstration audio directory (used while in MOCK mode)
 DEMO_AUDIO_DIR: Path = Path(
