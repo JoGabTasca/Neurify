@@ -740,12 +740,13 @@ class ModelService:
             cmd = [
                 FLUIDSYNTH_BIN,
                 "-ni",
-                str(SOUNDFONT_PATH),
-                str(midi_path),
                 "-F",
                 str(wav_path),
                 "-r",
                 "44100",
+                # FluidSynth 2.6+ only accepts options before the SoundFont and MIDI files
+                str(SOUNDFONT_PATH),
+                str(midi_path),
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             if result.returncode != 0 or not wav_path.is_file():
