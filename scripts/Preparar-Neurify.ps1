@@ -14,7 +14,7 @@ $Pasta = Split-Path -Parent $PSScriptRoot
 $Backend = Join-Path $Pasta 'backend'
 $Config = Join-Path $Backend 'modelo_config'
 $TamanhoModelo = 344871552
-$UrlSoundFont = 'https://github.com/ewerside/Neurify/releases/download/soundfont-v1/FluidR3_GM.sf2'
+$UrlSoundFont = 'https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/684543d5e5efaef08d02be50dcda8d552478fa60/GeneralUser-GS.sf2'
 
 function Titulo([string]$t) { Write-Host ''; Write-Host "== $t ==" -ForegroundColor Cyan }
 function Ok([string]$t) { Write-Host "   OK  $t" -ForegroundColor Green }
@@ -162,13 +162,14 @@ $qtd = (Get-ChildItem $Prompts -Filter *.mid -ErrorAction SilentlyContinue).Coun
 if ($qtd -eq 0) { Aviso 'Nenhum MIDI de comeco. O modelo vai comecar de um compasso vazio.' } else { Ok "$qtd MIDIs em checkpoints\gpt2-midi\prompts" }
 
 # ---------------------------------------------------------------------------
-Titulo '3/7 SoundFont (FluidR3_GM, o mesmo do notebook)'
+Titulo '3/7 SoundFont General MIDI'
 $SfDir = Join-Path $Backend 'soundfonts'
 New-Item -ItemType Directory -Path $SfDir -Force | Out-Null
 $Sf = Join-Path $SfDir 'default.sf2'
-if (-not (Test-Path $Sf) -or ((Get-Item $Sf).Length -lt 100000000)) {
-    Write-Host '   Baixando o FluidR3_GM.sf2 (148 MB) da release do repositorio...'
+if (-not (Test-Path $Sf) -or ((Get-Item $Sf).Length -lt 10000000)) {
+    Write-Host '   Baixando o GeneralUser GS (31 MB), de S. Christian Collins...'
     Invoke-WebRequest -Uri $UrlSoundFont -OutFile $Sf -UseBasicParsing
+    if ((Get-Item $Sf).Length -ne 32319396) { Aviso 'O SoundFont baixado tem tamanho inesperado. Se o audio falhar, apague backend\soundfonts\default.sf2 e rode de novo.' }
 }
 Ok 'backend\soundfonts\default.sf2'
 

@@ -131,7 +131,7 @@ neurify/
 3. Clique duas vezes em **`Preparar-Neurify.bat`**, na raiz do repositório. Ele:
    - copia o modelo para `backend/checkpoints/gpt2-midi/`, com a configuração e o tokenizador que estão em `backend/modelo_config/`;
    - baixa do VGMusic os MIDIs do conjunto de teste (lista em `backend/modelo_config/prompts_teste.txt`), usados como começo das músicas;
-   - baixa o SoundFont `FluidR3_GM.sf2` (licença MIT), o mesmo do notebook, da [release `soundfont-v1`](https://github.com/ewerside/Neurify/releases/tag/soundfont-v1);
+   - baixa o SoundFont [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS) (31 MB, uso livre) para `backend/soundfonts/default.sf2`. O notebook usa o `FluidR3_GM.sf2` (148 MB, grande demais para o GitHub); se você o tiver, basta colocá-lo nesse caminho;
    - baixa o FluidSynth para Windows dentro de `backend/tools/`, sem mexer no `PATH`;
    - cria o `backend/.env` em modo `auto`, o ambiente Python (`backend/.venv`) e roda o `npm install`;
    - instala Python e Node pelo `winget` se faltarem (pede confirmação);
@@ -180,7 +180,7 @@ Para converter os arquivos MIDI gerados pelo modelo em áudio WAV no modo real:
    Verifique se o binário está disponível no `PATH` executando `fluidsynth --version`.
 
 2. **Adicione um arquivo SoundFont (`.sf2`):**
-   - Baixe um SoundFont General MIDI. O usado no notebook é o `FluidR3_GM.sf2`, disponível na [release `soundfont-v1`](https://github.com/ewerside/Neurify/releases/tag/soundfont-v1) deste repositório.
+   - Baixe um SoundFont General MIDI. O notebook usa o `FluidR3_GM.sf2` (pacote `fluid-soundfont-gm` no Linux); o `Preparar-Neurify.bat` baixa o [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS), menor e de uso livre.
    - Salve o arquivo em `backend/soundfonts/default.sf2` (ou configure o caminho em `NEURIFY_SOUNDFONT_PATH` no arquivo `backend/.env`).
 
 ### 6.3. Configuração do Caminho do Checkpoint
